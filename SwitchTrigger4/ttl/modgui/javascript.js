@@ -28,9 +28,9 @@ function(event, funcs) {
   }
 
   if (event.type == 'start'){
-    // The first channel is the initial active channel.
+    // FIXME: get the current_channel value
     updateChannels(1, [2, 3, 4], element);
   } else if (event.type == 'change') {
     handleValueChange(event.symbol, event.value);
   }
-} 
+}

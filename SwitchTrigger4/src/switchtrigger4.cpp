@@ -3,11 +3,12 @@
 #include <string.h>
 #include <math.h>
 #include <lv2.h>
+#include "control-input-port-change-request.h"
 
 /**********************************************************************************************************************************************************/
 
 #define PLUGIN_URI "http://moddevices.com/plugins/mod-devel/SwitchTrigger4"
-enum {IN, OUT_1, OUT_2, OUT_3, OUT_4, CHANNEL1, CHANNEL2, CHANNEL3, CHANNEL4};
+enum {IN, OUT_1, OUT_2, OUT_3, OUT_4, CHANNEL1, CHANNEL2, CHANNEL3, CHANNEL4, CURRENT_CHANNEL};
 
 /**********************************************************************************************************************************************************/
 
@@ -24,18 +25,27 @@ public:
     static void cleanup(LV2_Handle instance);
     static const void* extension_data(const char* uri);
     int select_channel();
+
     float *in;
+
     float *out_1;
     float *out_2;
     float *out_3;
     float *out_4;
+
     float *channel1;
     float *channel2;
     float *channel3;
     float *channel4;
-    int channel;
+
+    float *current_channel;
+
+private:
+    route_audio(uint32_t n_samples, float *in, float *out, float *muted_1, float *muted_2, float *muted_3)
+    LV2_ControlInputPort_Change_Request* fCtrlInPortChangeReq;
 };
 
+    const LV2_ControlInputPort_Change_Request* const fCtrlInPortChangeReq;
 /**********************************************************************************************************************************************************/
 
 static const LV2_Descriptor Descriptor = {
@@ -63,7 +73,17 @@ const LV2_Descriptor* lv2_descriptor(uint32_t index)
 LV2_Handle SwitchTrigger::instantiate(const LV2_Descriptor* descriptor, double samplerate, const char* bundle_path, const LV2_Feature* const* features)
 {
     SwitchTrigger *plugin = new SwitchTrigger();
-    return (LV2_Handle)plugin;
+
+    const char* missing = lv2_features_query
+    (
+        features,
+        LV2_CONTROL_INPUT_PORT_CHANGE_REQUEST_URI, &fCtrlInPortChangeReq, true,
+        NULL
+    );
+
+    if (missing) throw std::invalid_argument ("Control Input Port Changes not provided by the host. Can't instantiate SwitchTrigger4");
+
+    return (LV2_Handle) plugin;
 }
 
 /**********************************************************************************************************************************************************/
@@ -116,26 +136,30 @@ void SwitchTrigger::connect_port(LV2_Handle instance, uint32_t port, void *data)
         case CHANNEL4:
             plugin->channel4 = (float*) data;
             break;
+        case CURRENT_CHANNEL:
+            plugin->current_channel = (float*) data;
+            break;
     }
 }
 
 /**********************************************************************************************************************************************************/
 
-int SwitchTrigger::select_channel() {
+float SwitchTrigger::select_channel() {
+    float channel = current_channel;
     if (*channel1 > 0) {
-	channel = 0;
+	channel = 0.0;
 	*channel1 = 0;
     }
     if (*channel2 > 0) {
-	channel = 1;
+	channel = 1.0;
 	*channel2 = 0;
     }
     if (*channel3 > 0) {
-	channel = 2;
+	channel = 2.0;
 	*channel3 = 0;
     }
     if (*channel4 > 0) {
-	channel = 3;
+	channel = 3.0;
 	*channel4 = 0;
     }
     return channel;
@@ -143,9 +167,8 @@ int SwitchTrigger::select_channel() {
 
 void SwitchTrigger::run(LV2_Handle instance, uint32_t n_samples)
 {
-    SwitchTrigger *plugin;
-    plugin = (SwitchTrigger *) instance;
-    /* float *pfOutput; */
+    SwitchTrigger *plugin = (SwitchTrigger *) instance;
+
     float *in = plugin->in;
     float *out_1 = plugin->out_1;
     float *out_2 = plugin->out_2;
@@ -153,70 +176,47 @@ void SwitchTrigger::run(LV2_Handle instance, uint32_t n_samples)
     float *out_4 = plugin->out_4;
 
     int channel = plugin->select_channel();
+    if (current_channel != channel)
+    {
+        plugin->current_channel = channel;
+        return fCtrlInPortChangeReq->request_change(fCtrlInPortChangeReq->handle, CURRENT_CHANNEL, channel);
+    }
 
     switch (channel) 
 	{
-	case 0:
-	    for ( uint32_t i = 0; i < n_samples; i++)
-		{
-		    *out_1 = *in;
-		    *out_2=0;
-		    *out_3=0;
-		    *out_4=0;
-		    in++;
-		    out_1++;
-		    out_2++;
-		    out_3++;
-		    out_4++;
-		}
+	case 0.0:
+        route_audio(n_samples, *in, *out_1, *out_2, *out_3, *out_4);
 	    break;
 	    
-	case 1:
-	    for (uint32_t i = 0; i < n_samples; i++)
-		{
-		    *out_1=0;
-		    *out_2 = *in;
-		    *out_3=0;
-		    *out_4=0;
-		    in++;
-		    out_1++;
-		    out_2++;
-		    out_3++;
-		    out_4++;
-		}
+	case 1.0:
+        route_audio(n_samples, *in, *out_2, *out_1, *out_3, *out_4);
 	    break;
   
-	case 2:
-	    for (uint32_t i = 0; i < n_samples; i++)
-		{
-		    *out_1=0;
-		    *out_2=0;
-		    *out_3 = *in;
-		    *out_4=0;
-		    in++;
-		    out_1++;
-		    out_2++;
-		    out_3++;
-		    out_4++;
-		}
+	case 2.0:
+        route_audio(n_samples, *in, *out_3, *out_1, *out_2, *out_4);
 	    break;
 
-	case 3:
-	    for (uint32_t i = 0; i < n_samples; i++)
-		{
-		    *out_1=0;
-		    *out_2=0;
-		    *out_3=0;
-		    *out_4 = *in;
-		    in++;
-		    out_1++;
-		    out_2++;
-		    out_3++;
-		    out_4++;
-		}
-	    break;
-
+	case 3.0:
+        route_audio(n_samples, *in, *out_4, *out_1, *out_2, *out_3);
+        break;
 	}
+}
+
+void SwitchTrigger::route_audio(uint32_t n_samples, float *in, float *out, float *muted_1, float *muted_2, float *muted_3) {
+    for (uint32_t i = 0; i < n_samples; i++)
+    {
+        *out = *in;
+
+        *muted_1=0;
+        *muted_2=0;
+        *muted_3=0;
+        
+        in++;
+        out++;
+        muted_1++;
+        muted_2++;
+        muted_3++;
+    }
 }
 
 /**********************************************************************************************************************************************************/
