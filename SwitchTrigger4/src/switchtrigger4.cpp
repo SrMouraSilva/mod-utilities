@@ -2,7 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdexcept>
 #include <lv2.h>
+#include <lv2/core/lv2_util.h>
+
 #include "control-input-port-change-request.h"
 
 /**********************************************************************************************************************************************************/
@@ -41,11 +44,10 @@ public:
     float *current_channel;
 
 private:
-    route_audio(uint32_t n_samples, float *in, float *out, float *muted_1, float *muted_2, float *muted_3)
+    void route_audio(uint32_t n_samples, float *in, float *out, float *muted_1, float *muted_2, float *muted_3);
     LV2_ControlInputPort_Change_Request* fCtrlInPortChangeReq;
 };
 
-    const LV2_ControlInputPort_Change_Request* const fCtrlInPortChangeReq;
 /**********************************************************************************************************************************************************/
 
 static const LV2_Descriptor Descriptor = {
@@ -77,7 +79,7 @@ LV2_Handle SwitchTrigger::instantiate(const LV2_Descriptor* descriptor, double s
     const char* missing = lv2_features_query
     (
         features,
-        LV2_CONTROL_INPUT_PORT_CHANGE_REQUEST_URI, &fCtrlInPortChangeReq, true,
+        LV2_CONTROL_INPUT_PORT_CHANGE_REQUEST_URI, &plugin->fCtrlInPortChangeReq, true,
         NULL
     );
 
@@ -144,22 +146,22 @@ void SwitchTrigger::connect_port(LV2_Handle instance, uint32_t port, void *data)
 
 /**********************************************************************************************************************************************************/
 
-float SwitchTrigger::select_channel() {
-    float channel = current_channel;
+int SwitchTrigger::select_channel() {
+    int channel = (int) *current_channel;
     if (*channel1 > 0) {
-	channel = 0.0;
+	channel = 0;
 	*channel1 = 0;
     }
     if (*channel2 > 0) {
-	channel = 1.0;
+	channel = 1;
 	*channel2 = 0;
     }
     if (*channel3 > 0) {
-	channel = 2.0;
+	channel = 2;
 	*channel3 = 0;
     }
     if (*channel4 > 0) {
-	channel = 3.0;
+	channel = 3;
 	*channel4 = 0;
     }
     return channel;
@@ -175,29 +177,31 @@ void SwitchTrigger::run(LV2_Handle instance, uint32_t n_samples)
     float *out_3 = plugin->out_3;
     float *out_4 = plugin->out_4;
 
+    float *current_channel = plugin->current_channel;
+
     int channel = plugin->select_channel();
-    if (current_channel != channel)
+    if (((int) *current_channel) != channel)
     {
-        plugin->current_channel = channel;
-        return fCtrlInPortChangeReq->request_change(fCtrlInPortChangeReq->handle, CURRENT_CHANNEL, channel);
+        *current_channel = (float) channel;
+        plugin->fCtrlInPortChangeReq->request_change(plugin->fCtrlInPortChangeReq->handle, CURRENT_CHANNEL, channel);
     }
 
     switch (channel) 
 	{
-	case 0.0:
-        route_audio(n_samples, *in, *out_1, *out_2, *out_3, *out_4);
+	case 0:
+        plugin->route_audio(n_samples, in, out_1, out_2, out_3, out_4);
 	    break;
 	    
-	case 1.0:
-        route_audio(n_samples, *in, *out_2, *out_1, *out_3, *out_4);
+	case 1:
+        plugin->route_audio(n_samples, in, out_2, out_1, out_3, out_4);
 	    break;
   
-	case 2.0:
-        route_audio(n_samples, *in, *out_3, *out_1, *out_2, *out_4);
+	case 2:
+        plugin->route_audio(n_samples, in, out_3, out_1, out_2, out_4);
 	    break;
 
-	case 3.0:
-        route_audio(n_samples, *in, *out_4, *out_1, *out_2, *out_3);
+	case 3:
+        plugin->route_audio(n_samples, in, out_4, out_1, out_2, out_3);
         break;
 	}
 }
